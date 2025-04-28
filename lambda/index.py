@@ -4,7 +4,9 @@ import os
 import boto3
 import re  # 正規表現モジュールをインポート
 from botocore.exceptions import ClientError
+import urllib.request
 
+API_URL = os.environ.get("API_URL", "https://your-colab-api-url.com/predict")
 
 # Lambda コンテキストからリージョンを抽出する関数
 def extract_region_from_arn(arn):
@@ -53,7 +55,15 @@ def lambda_handler(event, context):
             "role": "user",
             "content": message
         })
-        
+
+        # FastAPI用のリクエストペイロード
+        fastapi_payload = {
+            "messages": messages,
+            "max_tokens": 512,
+            "temperature": 0.7,
+            "top_p": 0.9
+        }
+
         # Nova Liteモデル用のリクエストペイロードを構築
         # 会話履歴を含める
         bedrock_messages = []
@@ -80,8 +90,15 @@ def lambda_handler(event, context):
             }
         }
         
-        print("Calling Bedrock invoke_model API with payload:", json.dumps(request_payload))
+        print("Calling external API with payload:", json.dumps(fastapi_payload))
         
+        # urllib.requestを使用してFastAPIへリクエスト
+        req = urllib.request.Request(
+            API_URL,
+            data=json.dumps(fastapi_payload).encode('utf-8'),
+            headers={"Content-Type": "application/json"}
+        )
+
         # invoke_model APIを呼び出し
         response = bedrock_client.invoke_model(
             modelId=MODEL_ID,
@@ -121,6 +138,10 @@ def lambda_handler(event, context):
                 "conversationHistory": messages
             })
         }
+    except urllib.error.HTTPError as e:
+            error_message = e.read().decode('utf-8')
+            print(f"API returned error: {e.code}, {error_message}")
+            raise Exception(f"API returned error: {e.code}, {error_message}")
         
     except Exception as error:
         print("Error:", str(error))
